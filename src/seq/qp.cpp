@@ -93,18 +93,46 @@ namespace optimize
 		{
 			return lambda.diagonal().inverse() * v;
 		}
+
 		//NOTE: modifies both PAGMat and rhs
 		template<typename T>
-		static void NewtonToKKTRpp(Mat<T>& PAGMat, Vec<T>& rhs, const Mat<T>& G,
-								const Mat<T>& ScaleW)
+		static void NewtonToKKTRpp(Mat<T>& PAGMat, const Vec<T>& deltaS,
+								   const Mat<T>& G, const Vec<T>& deltaZ, Vec<T>& rhs,
+								   const Mat<T>& ScaleW)
 		{
 			auto rws = PAGMat.rows();
 			auto cls = PAGMat.cols();
 
 			auto grws = G.rows();
 			//lower-right block of size (G.rows(), G.rows())
-			PAGMat.block(rws-grws, cls - grws, rws,cls) = -1 * ScaleW.transpose() * ScaleW;
+			auto wTw = ScaleW.transpose() * ScaleW;
+			PAGMat.block(rws-grws, cls - grws, rws,cls) = -1 * wTw;
+			//grab last third of rhs, modify
+			rhs.tail(2 * rhs.size()/3) -= deltaS + wTw * deltaZ;			
+		}
 
+		template<typename T>
+		static std::pair<Mat<T>, Vec<T>> 
+		NewtonToReducedKKTRpp(const Mat<T>& P, const Mat<T>& G,
+							  const Mat<T>& A, const Mat<T>& Winv,
+							  const Vec<T>& x, const Vec<T>& y,
+							  const Vec<T>& rhsx, const Vec<T>& rhsy,
+							  const Vec<T>& rhsz)
+		{
+			auto wtw = Winv * Winv.transpose();
+			auto topLeft = P + G.transpose() * wtw * G + A.transpose() * A;
+			auto arws = A.rows();
+			Mat<T> KKTMat(topLeft.rows() + arws, topLeft.cols() + arws);
+			//construct matrix
+			KKTMat << topLeft, A.transpose(),
+					  A, Mat<T>::Zero(arws, A.cols());
+
+			Vec<T> rhs(x.size() + y.size());
+			rhs << rhsx + G.transpose() * wtw * rhsz + A.transpose() *rhsy,
+				   rhsy;
+
+			return std::make_pair(KKTMat, rhs);
+		}
 
 
 		template<typename T>
